@@ -1,0 +1,41 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+# Cyril - 28/01/2014
+# Modele pour check snmp d'un seul OID. par exemple .1.3.6.1.2.1.4.5.0
+# Adaptation  :
+# Découper l'OID en deux, ici ".1.3.6.1.2.1.4.5" et "0" . Modifer baseoid et suboid
+# ajuster crit et warn
+# remplacer "zywall_zld_cpu" dans le nom des fonctions et dans les chaines
+
+# OID a surveiller
+baseoid = ".1.3.6.1.4.1.890.1.6.22.1.1"
+suboid = "0"
+
+def inventory_zywall_zld_cpu(info):
+    if len(info) > 0:
+        return [ (None, (warn, crit) ) ]
+
+def check_zywall_zld_cpu(item, _no_params, info):
+   value = int(info[0][0])
+   warn = 70
+   crit = 90
+   perfdata = [ ("sys cpu usage", value, warn, crit) ]
+   if value > crit:
+           return (2, "CPU: %i" % value, perfdata)
+   elif value > warn:
+           return (1, "CPU: %i" % value, perfdata)
+   else:
+           return (0, "CPU: %i" % value, perfdata)
+
+check_info["zywall_zld_cpu"] = {
+        "check_function"        : check_zywall_zld_cpu,
+        "service_description"   : "Zywall ZLD CPU usage",
+        "snmp_info"             : ( baseoid, [ suboid ] ),
+        "has_perfdata"          : True,
+        "inventory_function"    : inventory_zywall_zld_cpu,
+        }
+
+snmp_scan_functions["zywall_zld_cpu"] = \
+	lambda oid: "zywall usg" in oid(".1.3.6.1.2.1.1.1.0").lower()
+#        lambda oid: oid( baseoid + "." + suboid ) != None

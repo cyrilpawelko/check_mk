@@ -1,0 +1,3 @@
+Checks pour 'anciens zyxel' (zynos, Zywall 5, Zywall 2+)
+
+Zywall 5 : Firmware 4.03 minimum

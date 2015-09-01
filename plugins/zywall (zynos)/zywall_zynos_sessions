@@ -1,0 +1,42 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+# Cyril - 28/01/2014
+# Modele pour check snmp d'un seul OID. par exemple .1.3.6.1.2.1.4.5.0
+# Adaptation  :
+# Découper l'OID en deux, ici ".1.3.6.1.2.1.4.5" et "0" . Modifer baseoid et suboid
+# ajuster crit et warn
+# remplacer "zywall_zynos_sessions" dans le nom des fonctions et dans les chaines
+
+# OID a surveiller
+baseoid = ".1.3.6.1.4.1.890.1.6.1.1.4"
+suboid = "0"
+# Valeur warn si dépassée
+warn = 2000 
+# Valeur crit si dépassé
+crit = 4000
+
+def inventory_zywall_zynos_sessions(info):
+    if len(info) > 0:
+        return [ (None, (warn, crit) ) ]
+
+def check_zywall_zynos_sessions(item, _no_params, info):
+   value = int(info[0][0])
+   perfdata = [ ("sessions", value, warn, crit) ]
+   if value > crit:
+           return (2, "Sessions: %i" % value, perfdata)
+   elif value > warn:
+           return (1, "Sessions: %i" % value, perfdata)
+   else:
+           return (0, "Sessions: %i" % value, perfdata)
+
+check_info["zywall_zynos_sessions"] = {
+        "check_function"        : check_zywall_zynos_sessions,
+        "service_description"   : "Zywall ZynOS NAT Sessions",
+        "snmp_info"             : ( baseoid, [ suboid ] ),
+        "has_perfdata"          : True,
+        "inventory_function"    : inventory_zywall_zynos_sessions,
+        }
+
+snmp_scan_functions["zywall_zynos_sessions"] = \
+	lambda oid: oid(".1.3.6.1.2.1.1.2.0") == ".1.3.6.1.4.1.890.1.2"

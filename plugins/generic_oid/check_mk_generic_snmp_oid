@@ -1,0 +1,46 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+# Cyril - 28/01/2014
+# Check_snmp_template for a single OID, for example .1.3.6.1.2.1.4.5.0
+# How to customize :
+# Break the OID in 2 parts, for instance ".1.3.6.1.2.1.4.5" and "0". Adapt baseoid and suboid.
+# Adjust crit and warn values
+# Replace "snmp_oid_test1" in all strings and function names
+# Remplace "valeur" with a description
+
+# OID to check
+baseoid = ".1.3.6.1.4.1.6486.800.1.2.1.16.1.1.1.13"
+suboid = "0"
+# Warn if above this value
+warn = 70
+# Critical if above this value
+crit = 90
+# OID description (for example: CPU Utilization)
+valeur = "Valeur"
+
+def inventory_snmp_oid_test1(info):
+    if len(info) > 0:
+        return [ (None, (warn, crit) ) ]
+
+def check_snmp_oid_test1(item, _no_params, info):
+   value = int(info[0][0])
+   perfdata = [ ("valeur", value, warn, crit) ]
+   if value > crit:
+           return (2, "Valeur: %i" % value, perfdata)
+   elif value > warn:
+           return (1, "Valeur: %i" % value, perfdata)
+   else:
+           return (0, "Valeur: %i" % value, perfdata)
+
+check_info["snmp_oid_test1"] = {
+        "check_function"        : check_snmp_oid_test1,
+        "service_description"   : "Alcatel Switch CPU",
+        "snmp_info"             : ( baseoid, [ suboid ] ),
+        "has_perfdata"          : True,
+        "inventory_function"    : inventory_snmp_oid_test1,
+        }
+
+# Quick and dirty scan function, testing against sysObjectID would be more efficient
+snmp_scan_functions["snmp_oid_test1"] = \
+        lambda oid: oid( baseoid + "." + suboid ) != None
