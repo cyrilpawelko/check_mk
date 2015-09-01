@@ -1,0 +1,15 @@
+title: Checks Symantec Backup Exec Job result
+agents: windows
+author: Cyril Pawelko <cyril@pawelko.net>
+license: GPL
+distribution: none 
+description:
+ This check queries job history in Backup Exec database and returns the last job execution result
+ Performance data is also returned for job size, duration, rate, and deduplication ratio
+ Job must have run one to be inventorized
+
+item:
+ The name of each backup or copy job
+
+inventory:
+ Automatic inventory is supported. 

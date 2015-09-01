@@ -1,0 +1,90 @@
+#!/usr/bin/python
+# Backup Exec check script for check_mk
+# Tested with Backup Exec 2010 and 2012
+# Retrieves job status from backup exec database 
+# Cyril Pawelko <cyril@pawelko.net> http://www.pawelko.net
+#
+# This is free software;  you can redistribute it and/or modify it
+# under the  terms of the  GNU General Public License  as published by
+# the Free Software Foundation in version 2.  check_mk is  distributed
+# in the hope that it will be useful, but WITHOUT ANY WARRANTY;  with-
+# out even the implied warranty of  MERCHANTABILITY  or  FITNESS FOR A
+# PARTICULAR PURPOSE. See the  GNU General Public License for more de-
+# ails.  You should have  received  a copy of the  GNU  General Public
+# License along with GNU Make; see the file  COPYING.  If  not,  write
+# to the Free Software Foundation, Inc., 51 Franklin St,  Fifth Floor,
+# Boston, MA 02110-1301 USA.
+#
+#Info from http://www.symantec.com/docs/TECH126925
+#JOB_STATE_CANCELED = 1 The job has been terminated because it was canceled.
+#JOB_STATE_COMPLETED = 2 The job has completed and is waiting for final disposition.
+#JOB_STATE_SUCCESS_WITH_EXCEPTIONS = 3 The job has completed successfully with some exceptions.
+#JOB_STATE_DISPATCHED = 4 The job has been dispatched.
+#JOB_STATE_HOLD = 5 The job is on hold.
+#JOB_STATE_ERROR = 6 The job has completed with an error.
+#JOB_STATE_INVALID SCHEDULE = 7 The schedule for the task is invalid. The job will never run.
+#JOB_STATE_NOT_IN_WINDOW = 10 The job's scheduled time window closed before the job could be dispatched. There may not have been an available device during the time window.
+#JOB_STATE_MISSED = 9 (TECH28044)
+#JOB_STATE_READY_BUT_PAUSED = 11 The job is ready, but the media server is paused.
+#JOB_STATE_PENDING = 12 The job is in a transitional state.
+#JOB_STATE_RECOVERED = 13 During startup, Backup Exec detected that a job was active when the server was shut down, and that the Checkpoint restart option was not enabled for this job. The job history log has been marked JOB_STATE_RECOVERED, and the job has been scheduled to restart immediately
+#JOB_STATE_RESUMED = 15 During startup, Backup Exec detected that a job was active when the server was shut down, and that the Checkpoint restart option was enabled for this job. The job history log has been marked JOB_STATE_RESUMED, the job has been scheduled to restart immediately, and the job flag has been set to indicate checkpoint restart.
+#JOB_STATE_ACTIVE = 16 The job is currently running on the server.
+#JOB_STATE_READY = 17 The job is eligible for dispatch.
+#JOB_STATE_SCHEDULED = 18 The job has a due date in the future.
+#JOB_STATE_SUCCESS = 19 The job has been completed successfully.
+#JOB_STATE_SUPERCEDED = 20 The job is ready, but another higher precedence task is eligible to run.
+#JOB_STATE_THRESHOLD_AUTO_ABORT =21 The job was canceled because it was not completed within the number of hours or minutes that were set for the Enable automatic cancellation option on the job schedule.
+#JOB_STATE_TO_BE_SCHEDULED = 22 The job needs to have the due date calculated.
+#JOB_STATE_LINKED_JOB = 23 The job is linked to another job, and will not start until that job is finished
+
+# Sample Output:
+# <<<backupexec_job>>>
+#job server.ad.local_Sauvegarde_00001_Complete 19 04/06/2014 21:54:59 32 1537 0 0
+# Format Outil:
+#job jobname FinalJobStatus Enddate Endtime ElapsedTimeSeconds TotalDataSizeBytes TotalRateMbMin DDupRatio
+
+factory_settings["backupexec_job_defaults"] = {
+    "exceptions_are_ok"         : (False,)
+}
+
+def inventory_backupexec_job(info):
+    inventory = []
+    for line in info:
+        if line[0] == "error": inventory.append( (" ".join(line), None) ) 
+        if line[0] == "job": inventory.append( (line[1], None) )
+    return inventory # return empty list: nothing found
+
+def check_backupexec_job(item, params, info):
+    exceptions_are_ok = params.get("exceptions_are_ok")[0]
+    for line in info:
+        if line[1] == item:
+            comment = "(end %s %s UTC, duration %s, size %s, rate %s Mb/min, dedup ratio %s)" %(line[3],line[4],get_age_human_readable(saveint(line[5])),get_bytes_human_readable(saveint(line[6])),line[7],line[8])
+            perfdata = [ 
+                ( "Elapsed Time", saveint(line[5]) ),
+                ( "Backup Size",  saveint(line[6]) ),
+                ( "Rate Mb/Min",  savefloat(line[7].replace(",",".")) ),
+                ( "DDupRatio",    saveint(line[8]) )] 
+            FinalJobStatus = int(line[2])
+            if   FinalJobStatus ==  1 : status = 2; message="canceled(!!)"
+            elif FinalJobStatus ==  2 : status = 0; message="completed"
+            elif FinalJobStatus ==  3 : 
+		if exceptions_are_ok == True : status = 0; message="completed with exceptions"
+		else : status = 1; message="completed with exceptions(!)" 
+            elif FinalJobStatus ==  6 : status = 2; message="completed with errors(!!)"
+            elif FinalJobStatus ==  9 : status = 2; message="missed(!!)"
+            elif FinalJobStatus == 11 : status = 1; message="paused(!)"
+            elif FinalJobStatus == 19 : status = 0; message="successful"
+            elif FinalJobStatus == 21 : status = 2; message="canceled, timed out(!!)"
+            else : status = 3; message="Unknown (Jobstatus=%s)"%line[2]
+            return (status, "Job \"%s\" %s %s" % (line[1],message,comment), perfdata )
+    return (3, "Job not found")
+
+check_info["backupexec_job"] = {
+    "inventory_function"  : inventory_backupexec_job,
+    "check_function"      : check_backupexec_job,
+    "has_perfdata"        : True,
+    "service_description" : "Backup Exec Job",
+    "group"     	  : "backupexec_job",
+    "default_levels_variable" : "backupexec_job_defaults",
+}
