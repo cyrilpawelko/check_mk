@@ -1,0 +1,58 @@
+# Check_mk Plugin For Dell Compellent SC4020
+# Licence : GPL
+# Cyril Pawelko - cyril@pawelko.net
+# 03/2015
+
+def inventory_dell_compellent_server(info):
+    inventory = []
+    for line in info:
+        if line[3] == "1":
+            inventory.append( ( line[2], None ) )
+    return inventory
+
+def check_dell_compellent_server(item, _no_params, info):
+        for line in info:
+                if line[2] == item:
+                        ident = "Server %s" % (line[2])
+                        state = 1
+                        #  ScStatus (INTEGER) {up( 1 ),down( 2 ),degraded( 3 )}
+                        if line[1] == "1" :
+                                                        state = 0
+                                                        servermsg = " is OK"
+                        elif line[1] == "3" :
+                                                        state = 1
+                                                        servermsg = " is degraded(!)"
+                        elif line[1] == "2" :
+                                                        state = 2
+                                                        servermsg = " is down(!!)"
+                        else : return(3, ident + " state unknown")
+                        if line[3] == "1" :
+                                                        connectivity = " is OK"
+                        elif line[3] == "3" :
+                                                        if state < 1 : state = 1
+                                                        connectivity = " is partial(!)"
+                        elif line[3] == "2" :
+                                                        if state < 2 : state = 2
+                                                        connectivity = " is down(!!)"
+                        else :
+                                                        state = 3
+                                                        connectivity = " connectivity unknown"
+                        paths = " (path count:%s)" % line[4]
+                        return (state, ident + servermsg + " - connectivity" + connectivity + paths)
+        return (3, "Server %s not found" % item )
+
+check_info["dell_compellent_server"] = {
+    "check_function"        : check_dell_compellent_server,
+    "inventory_function"    : inventory_dell_compellent_server,
+    "service_description"   : "Server %s",
+    "has_perfdata"          : False,
+    "snmp_scan_function"    : lambda oid: "compellent" in oid(".1.3.6.1.2.1.1.1.0").lower() and\
+                                                                oid(".1.3.6.1.4.1.16139.2.1.0") != None,
+    "snmp_info"             : ( ".1.3.6.1.4.1.16139.2.27.1", [
+                                        2, # 0 scServerNbr
+                                        3, # 1 scServerStatus
+                                        4, # 2 scServerName
+                                        5, # 3 scServerCnctvy
+                                        6, # 4 scServerPathCount
+                              ]),
+}

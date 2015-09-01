@@ -1,0 +1,44 @@
+# Check_mk Plugin For Dell Compellent SC4020
+# Licence : GPL
+# Cyril Pawelko - cyril@pawelko.net
+# 03/2015
+
+def inventory_dell_compellent_ctlrtemp(info):
+    return [ ( compellent_ctlrtempname(line) , None) for line in info ]
+
+def compellent_ctlrtempname(line):
+	return "Controller %s - %s" % (line[0][0],line[3])
+	
+def check_dell_compellent_ctlrtemp(item, _no_params, info):
+        for line in info:
+                if compellent_ctlrtempname(line) == item:
+                        ident = "Temperature of %s" % compellent_ctlrtempname(line)
+                        perfdata = [ ("Temperature",int(line[4]),int(line[8]),int(line[10])), ]
+                        #  ScStatus (INTEGER) {up( 1 ),down( 2 ),degraded( 3 )}
+                        if line[2] == "1" : return (0,ident + " is OK", perfdata)
+                        elif line[2] == "3" : return (1, ident + " is degraded(!)", perfdata)
+                        elif line[2] == "2" : return (2, ident + " is down(!!)", perfdata)
+                        else : return(3, ident + " state unknown", perfdata)
+        return (3, "Item %s not found" % item )
+
+check_info["dell_compellent_ctlrtemp"] = {
+    "check_function"        : check_dell_compellent_ctlrtemp,
+    "inventory_function"    : inventory_dell_compellent_ctlrtemp,
+    "service_description"   : "Temperature %s",
+    "has_perfdata"          : True,
+    "snmp_scan_function"    : lambda oid: "compellent" in oid(".1.3.6.1.2.1.1.1.0").lower() and\
+                                                                oid(".1.3.6.1.4.1.16139.2.1.0") != None,
+    "snmp_info"             : ( ".1.3.6.1.4.1.16139.2.19.1", [
+                                        OID_END, # 0 Multiples indexes, eg controller.power
+                                        2, # 1 scctlrtempNumber
+                                        3, # 2 scctlrtempStatus
+                                        4, # 3 scctlrtempName
+										5, # 4 scCtlrTempCurrentC
+										6, # 5 scCtlrTempNormMaxC
+										7, # 6 scCtlrTempNormMinC
+										8, # 7 scCtlrTempWarnLwrC
+										9, # 8 scCtlrTempWarnUprC
+										10,# 9 scCtlrTempCritLwrC
+										11,#10 scCtlrTempCritUprC
+                              ]),
+}

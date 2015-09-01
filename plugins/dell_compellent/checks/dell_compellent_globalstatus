@@ -1,0 +1,28 @@
+# Check_mk Plugin For Dell Compellent SC4020
+# Licence : GPL
+# Cyril Pawelko - cyril@pawelko.net
+# 03/2015
+
+def inventory_dell_compellent_globalstatus(info):
+    return [ ("" , None) for line in info ]
+
+def check_dell_compellent_globalstatus(item, _no_params, info):
+    # productIDGlobalStatus : other( 1 ),unknown( 2 ),ok( 3 ),noncritical( 4 ),critical( 5 ),nonrecoverable( 6 )
+    #print "Global status : %s" % line[4]
+	if info[0][0] == "3" : return (0,"Storage Center status is OK")
+	elif info[0][0] == "4" : return (1, "Storage Center status is degraded(!)")
+	elif info[0][0] == "5" : return (2, "Storage Center status is critical(!!)")
+	elif info[0][0] == "6" : return (2, "Storage Center status is non recoverable(!!)")
+	else : return(3, "Storage Center status is non recoverable")
+
+check_info["dell_compellent_globalstatus"] = {
+    "check_function"        : check_dell_compellent_globalstatus,
+    "inventory_function"    : inventory_dell_compellent_globalstatus,
+    "service_description"   : "Global Status",
+    "has_perfdata"          : False,
+    "snmp_scan_function"    : lambda oid: "compellent" in oid(".1.3.6.1.2.1.1.1.0").lower() and\
+                                                                oid(".1.3.6.1.4.1.16139.2.1.0") != None,
+    "snmp_info"             : (  ".1.3.6.1.4.1.16139.2", [
+                                        6, # 0 productIDGlobalStatus
+                              ]),
+}

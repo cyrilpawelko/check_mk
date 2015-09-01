@@ -1,0 +1,37 @@
+# Check_mk Plugin For Dell Compellent SC4020
+# Licence : GPL
+# Cyril Pawelko - cyril@pawelko.net
+# 03/2015
+
+def inventory_dell_compellent_ctlrpower(info):
+    return [ ("%s" % (compellent_ctlrpower_realname(line[0])) , None) for line in info ]
+
+def compellent_ctlrpower_realname(index):
+        return index.replace(".1","A").replace(".2","B")
+
+def check_dell_compellent_ctlrpower(item, _no_params, info):
+        for line in info:
+                if compellent_ctlrpower_realname(line[0]) == item:
+                        enclIdent = "Controller %s %s" % (line[0][0],line[3])
+                        #  ScStatus (INTEGER) {up( 1 ),down( 2 ),degraded( 3 )}
+                        if line[2] == "1" : return (0,enclIdent + " is OK")
+                        elif line[2] == "3" : return (1, enclIdent + " is degraded(!)")
+                        elif line[2] == "2" : return (2, enclIdent + " is down(!!)")
+                        else : return(3, enclIdent + " state unknown")
+        return (3, "Enclosure %s not found" % item )
+
+check_info["dell_compellent_ctlrpower"] = {
+    "check_function"        : check_dell_compellent_ctlrpower,
+    "inventory_function"    : inventory_dell_compellent_ctlrpower,
+    "service_description"   : "Controller Power %s",
+    "has_perfdata"          : False,
+    "snmp_scan_function"    : lambda oid: "compellent" in oid(".1.3.6.1.2.1.1.1.0").lower() and\
+                                                                oid(".1.3.6.1.4.1.16139.2.15.1.7.1") != "EN-SC4020" and # SC-4020 has enclosure power, but no controller power \
+                                                                oid(".1.3.6.1.4.1.16139.2.1.0") != None,
+    "snmp_info"             : ( ".1.3.6.1.4.1.16139.2.17.1", [
+                                        OID_END, # 0 Multiples indexes, eg controller.power
+                                        2, # 1 scCtlrPowerNumber
+                                        3, # 2 scCtlrPowerStatus
+                                        4, # 3 scCtlrPowerName
+                              ]),
+}

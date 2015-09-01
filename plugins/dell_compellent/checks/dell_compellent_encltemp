@@ -1,0 +1,38 @@
+# Check_mk Plugin For Dell Compellent SC4020
+# Licence : GPL
+# Cyril Pawelko - cyril@pawelko.net
+# 03/2015
+
+def inventory_dell_compellent_encltemp(info):
+    return [ ( compellent_encltempname(line) , None) for line in info ]
+
+def compellent_encltempname(line):
+	return "Enclosure %s - %s" % (line[0][0],line[3])
+	
+def check_dell_compellent_encltemp(item, _no_params, info):
+        for line in info:
+                if compellent_encltempname(line) == item:
+                        ident = "Temperature of %s" % compellent_encltempname(line)
+                        perfdata = [ ("Temperature",int(line[4])), ]
+                        #  ScStatus (INTEGER) {up( 1 ),down( 2 ),degraded( 3 )}
+                        if line[2] == "1" : return (0,ident + " is OK", perfdata)
+                        elif line[2] == "3" : return (1, ident + " is warning(!)", perfdata)
+                        elif line[2] == "2" : return (2, ident + " is critical(!!)", perfdata)
+                        else : return(3, ident + " state unknown", perfdata)
+        return (3, "Item %s not found" % item )
+
+check_info["dell_compellent_encltemp"] = {
+    "check_function"        : check_dell_compellent_encltemp,
+    "inventory_function"    : inventory_dell_compellent_encltemp,
+    "service_description"   : "Temperature %s",
+    "has_perfdata"          : True,
+    "snmp_scan_function"    : lambda oid: "compellent" in oid(".1.3.6.1.2.1.1.1.0").lower() and\
+                                                                oid(".1.3.6.1.4.1.16139.2.1.0") != None,
+    "snmp_info"             : ( ".1.3.6.1.4.1.16139.2.23.1", [
+                                        OID_END, # 0 Multiple indexes
+                                        2, # 1 scencltempNumber
+                                        3, # 2 scencltempStatus
+                                        4, # 3 scencltempLocation
+										5, # 4 scencltempCurrentC
+                              ]),
+}

@@ -1,0 +1,32 @@
+# Check_mk Plugin For Dell Compellent SC4020
+# Licence : GPL
+# Cyril Pawelko - cyril@pawelko.net
+# 03/2015
+
+def inventory_dell_compellent_enclfan(info):
+    return [ ("%s" % (x[2]) , None) for x in info ]
+
+def check_dell_compellent_enclfan(item, _no_params, info):
+        for line in info:
+                if line[2] == item:
+                        ident = "Enclosure Fan %s (%s)" % (line[0],line[2])
+                        #  ScStatus (INTEGER) {up( 1 ),down( 2 ),degraded( 3 )}
+                        if line[1] == "1" : return (0,ident + " is OK")
+                        elif line[1] == "3" : return (1, ident + " is degraded(!)")
+                        elif line[1] == "2" : return (2, ident + " is down(!!)")
+                        else : return(3, ident + " state unknown")
+        return (3, "Enclosure Fan %s not found" % item )
+
+check_info["dell_compellent_enclfan"] = {
+    "check_function"        : check_dell_compellent_enclfan,
+    "inventory_function"    : inventory_dell_compellent_enclfan,
+    "service_description"   : "Enclosure Fan %s",
+    "has_perfdata"          : False,
+    "snmp_scan_function"    : lambda oid: "compellent" in oid(".1.3.6.1.2.1.1.1.0").lower() and\
+                                                                oid(".1.3.6.1.4.1.16139.2.1.0") != None,
+    "snmp_info"             : ( ".1.3.6.1.4.1.16139.2.20.1", [
+                                        2, # 0 scEnclFanNbr
+                                        3, # 1 scEnclFanStatus
+                                        4, # 2 scEnclFanLocation
+                              ]),
+}
