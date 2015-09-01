@@ -1,1 +1,1 @@
-Check_mk stuff
+Check_mk stuff by Cyril Pawelko
