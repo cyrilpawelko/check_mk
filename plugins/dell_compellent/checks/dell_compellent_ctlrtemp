@@ -13,7 +13,8 @@ def check_dell_compellent_ctlrtemp(item, _no_params, info):
         for line in info:
                 if compellent_ctlrtempname(line) == item:
                         ident = "Temperature of %s" % compellent_ctlrtempname(line)
-                        perfdata = [ ("Temperature",int(line[4]),int(line[8]),int(line[10])), ]
+                        #perfdata = [ ("Temperature",int(line[4]),int(line[8]),int(line[10])), ]
+			perfdata = [ ("Temperature",int(line[4])), ]
                         #  ScStatus (INTEGER) {up( 1 ),down( 2 ),degraded( 3 )}
                         if line[2] == "1" : return (0,ident + " is OK", perfdata)
                         elif line[2] == "3" : return (1, ident + " is degraded(!)", perfdata)
