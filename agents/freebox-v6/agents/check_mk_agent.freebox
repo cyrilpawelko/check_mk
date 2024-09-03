@@ -1,11 +1,11 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# check_mk_agent_freebox_revolution v1.4 05/04/2015 
+# check_mk_agent_freebox_revolution v3.0 03/09/2024
 # Cyril Pawelko http://www.pawelko.net et http://www.pawelko.net/agent-check_mk-pour-freebox-server/
 # Base sur l'API de la freebox v6 http://dev.freebox.fr/sdk/os/
 # Inspiré de http://skimpax.web4me.fr/wiki/doku.php/freebox:freebox_shell et de quelques autres
-# "Modification des réglages de la Freebox" doit être autorisé
+# "Modification des réglages de la Freebox" doit être autorisé (TODO : A retester)
 
 import requests
 import logging
@@ -20,415 +20,594 @@ import getopt
 import socket
 from time import sleep
 import os
+import codecs
 
 progname = "check_mk_agent_freebox_revolution"
-tokenfile = "."+progname+'.token'
-tokenpath=os.path.expanduser('~')+"/"+tokenfile
-debugfile = '/tmp/'+progname+'.log'
-progversion = "1.4"
+tokenfile = "." + progname + ".token"
+tokenpath = os.path.expanduser("~") + "/" + tokenfile
+debugfile = "/tmp/" + progname + ".log"
+progversion = "3.0"
 appID = "net.pawelko.fbx.check_mk_agent"
-freeboxUrl = "http://mafreebox.freebox.fr"
-headers = {'Content-type': 'application/json', 'Accept': 'application/json', 'charset': 'utf-8'}
+freeboxUrl = "https://mafreebox.freebox.fr"
+headers = {
+    "Content-type": "application/json",
+    "Accept": "application/json",
+    "charset": "utf-8",
+}
 sessionToken = ""
-localChecks = [ ]
+localChecks = []
+
+requests.packages.urllib3.disable_warnings()
+
 
 def print_help():
-	print "%s v%s"%(progname,progversion)
-	print "Cyril Pawelko - http://www.pawelko.net\n"
-	print "Usage: %s [-a|-d|-v|-h]\n"%progname
-	print "\t-a , --auth : Authentifier le programme auprès de la freebox"
-	print "\t-d , --debug : Logger les messages et les erreurs dans %s"%debugfile
-	print "\t-v , --verbose : Affichage détaillé des actions"
-	print "\t-h , --help : Affiche cette aide"
+    print(("%s v%s" % (progname, progversion)))
+    print("Cyril Pawelko - http://www.pawelko.net\n")
+    print(("Usage: %s [-a|-d|-v|-h]\n" % progname))
+    print("\t-a , --auth : Authentifier le programme auprès de la freebox")
+    print(("\t-d , --debug : Logger les messages et les erreurs dans %s" % debugfile))
+    print("\t-v , --verbose : Affichage détaillé des actions")
+    print("\t-h , --help : Affiche cette aide")
+
 
 def set_verbose():
-        logging.basicConfig(
-                format="DEBUG:%(asctime)-15s %(message)s",
-                level=logging.DEBUG)
+    logging.basicConfig(format="DEBUG:%(asctime)-15s %(message)s", level=logging.DEBUG)
+
 
 def set_debug():
-	logging.basicConfig(
-		format="DEBUG:%(asctime)-15s %(message)s",
-		level=logging.DEBUG,
-		filename=debugfile,
-                filemode='a')
-	def log_uncaught_exceptions(ex_cls, ex, tb):
-        	logging.critical(''.join(traceback.format_tb(tb)))
-	        logging.critical('{0}: {1}'.format(ex_cls, ex))
-		raise ex
-	sys.excepthook = log_uncaught_exceptions
+    logging.basicConfig(
+        format="DEBUG:%(asctime)-15s %(message)s",
+        level=logging.DEBUG,
+        filename=debugfile,
+        filemode="a",
+    )
+
+def log_uncaught_exceptions(ex_cls, ex, tb):
+    logging.critical("".join(traceback.format_tb(tb)))
+    logging.critical("{0}: {1}".format(ex_cls, ex))
+    raise ex
+
+sys.excepthook = log_uncaught_exceptions
+
 
 def get_freebox(url):
-	request = requests.get(freeboxUrl+url, headers = headers)
-	logging.debug("GET: " + freeboxUrl + url)
-	if request.status_code != requests.codes.ok :
-		logging.debug("GET: ERROR %i"% request.status_code)
-		return {"success" : False,"msg":"HTTP error "+str(request.status_code)}
-	else:
-		logging.debug("GET : RESPONSE =" + request.text +" (encoding:"+request.encoding+")")
-                response = json.loads(request.text)
-		return response
+    request = requests.get(freeboxUrl + url, headers=headers, verify=False)
+    logging.debug("GET: " + freeboxUrl + url)
+    if request.status_code != requests.codes.ok:
+        logging.debug("GET: ERROR %i" % request.status_code)
+        return {"success": False, "msg": "HTTP error " + str(request.status_code)}
+    else:
+        logging.debug(
+            "GET : RESPONSE =" + request.text + " (encoding:" + request.encoding + ")"
+        )
+        response = json.loads(request.text)
+        return response
 
-def post_freebox(url,post):
-	request = requests.post(freeboxUrl + url , post , headers=headers )
-	logging.debug("POST: " + freeboxUrl + url)
-	if request.status_code != requests.codes.ok :
-               logging.debug("POST: ERROR %i"% request.status_code)
-               return {"success" : False,"msg":"HTTP error "+str(request.status_code)}
-        else:
-                logging.debug("POST : RESPONSE =" + request.text)
-                response = json.loads(request.text)
-                return response
+
+def post_freebox(url, post):
+    request = requests.post(freeboxUrl + url, post, headers=headers, verify=False)
+    logging.debug("POST: " + freeboxUrl + url)
+    if request.status_code != requests.codes.ok:
+        logging.debug("POST: ERROR %i" % request.status_code)
+        return {"success": False, "msg": "HTTP error " + str(request.status_code)}
+    else:
+        logging.debug("POST : RESPONSE =" + request.text)
+        response = json.loads(request.text)
+        return response
+
 
 # AUTHORIZE
 def authorize():
-	print "-----------------"
-	print "- AUTORISATION - "
-        print "-----------------"
-	payload = {'app_id': appID, 'app_name': progname, 'app_version': progversion, 'device_name' : socket.gethostname() }
-	requete = post_freebox("/api/v1/login/authorize/",json.dumps(payload))
-	if requete['success']:
-		app_token=requete['result']['app_token']
-		track_id=requete['result']['track_id']
-		print("Autoriser l'application sur l'afficheur du Freebox server")
-		boucle = True
-		while boucle:
-			sleep(4)
-			requete = get_freebox("/api/v1/login/authorize/"+str(track_id))
-			status = requete['result']['status']
-			if status == "granted":
-				print "Accès obtenu"
-				boucle = False
-			elif status == "pending":
-				print "En attente..."
-			else:
-				print "Echec (%s). Abandon."%status
-				sys.exit(4)
-	else:
-		print "L'autorisation a échoué"
-		sys.exit(4)
-	try:
-		print "Enregistrement dans %s"%tokenpath
-		f = open(tokenpath,'w')
-		f.write(app_token)
-		f.close
-		os.chmod(tokenpath, 0600)	
-	except IOError as e:
-		print "I/O error({0}): {1}".format(e.errno, e.strerror)
-	else:
-		print "App token sauvegardé"
-	print "Les permissions par défaut de l'application sont insuffisantes, se connecter à l'interface web du Freebox server et accorder le droit \"Modification des réglages\""
-	sys.exit(0)
+    print("-----------------")
+    print("- AUTORISATION - ")
+    print("-----------------")
+    payload = {
+        "app_id": appID,
+        "app_name": progname,
+        "app_version": progversion,
+        "device_name": socket.gethostname(),
+    }
+    requete = post_freebox("/api/v1/login/authorize/", json.dumps(payload))
+    if requete["success"]:
+        app_token = requete["result"]["app_token"]
+        track_id = requete["result"]["track_id"]
+        print("Autoriser l'application sur l'afficheur du Freebox server")
+        boucle = True
+        while boucle:
+            sleep(4)
+            requete = get_freebox("/api/v1/login/authorize/" + str(track_id))
+            status = requete["result"]["status"]
+            if status == "granted":
+                print("Accès obtenu")
+                boucle = False
+            elif status == "pending":
+                print("En attente...")
+            else:
+                print("Echec (%s). Abandon." % status)
+                sys.exit(4)
+    else:
+        print("L'autorisation a échoué")
+        sys.exit(4)
+    try:
+        print("Enregistrement dans %s" % tokenpath)
+        f = open(tokenpath, "w")
+        f.write(app_token)
+        f.close
+        os.chmod(tokenpath, 0o600)
+    except IOError as e:
+        print("I/O error({0}): {1}".format(e.errno, e.strerror))
+    else:
+        print("App token sauvegardé")
+    print(
+        "Les permissions par défaut de l'application sont insuffisantes, se connecter à l'interface web du Freebox server et accorder le droit \"Modification des réglages\""
+    )
+    sys.exit(0)
+
 
 try:
-	opts, args = getopt.getopt(sys.argv[1:], "adhv", ["auth","help","debug","verbose"]) 
+    opts, args = getopt.getopt(
+        sys.argv[1:], "adhv", ["auth", "help", "debug", "verbose"]
+    )
 except getopt.GetoptError as err:
-	print str(err)
-	sys.exit(2)
+    print(str(err))
+    sys.exit(2)
 for o, a in opts:
-	if o in ("-a", "--auth"):
-		authorize()
-		sys.exit(0)
-	if o in ("-d", "--debug"):
-		set_debug()
-	elif o in ("-v", "--verbose"):
-		set_verbose()
-	if o in ("-h", "--help"):
-		print_help()
-		sys.exit(0)
+    if o in ("-a", "--auth"):
+        authorize()
+        sys.exit(0)
+    if o in ("-d", "--debug"):
+        set_debug()
+    elif o in ("-v", "--verbose"):
+        set_verbose()
+    if o in ("-h", "--help"):
+        print_help()
+        sys.exit(0)
 
 # TOKEN
 try:
-	logging.debug("Lecture token dans "+tokenpath)
-        f = open(tokenpath,'r')
-        appToken=f.readline()
-        f.close
+    logging.debug("Lecture token dans " + tokenpath)
+    f = open(tokenpath, "r")
+    appToken = f.readline()
+    f.close
 except IOError as e:
-        print "ERREUR: Impossible d'ouvrir le fichier "+tokenpath+" ({0}-{1})".format(e.errno, e.strerror)
-	print "Lancer manuellement avec l'option -a pour créer le fichier token"
-	sys.exit(2)
-logging.debug("AppToken="+appToken)
+    print(
+        "ERREUR: Impossible d'ouvrir le fichier "
+        + tokenpath
+        + " ({0}-{1})".format(e.errno, e.strerror)
+    )
+    print("Lancer manuellement avec l'option -a pour créer le fichier token")
+    sys.exit(2)
+logging.debug("AppToken=" + appToken)
 
 # LOGIN
 requete = get_freebox("/api/v1/login/")
-if requete['success'] :
-	if not requete['result']['logged_in']:
-                challenge = requete['result']['challenge']
-        else:
-                logging.debug("LOGIN : NOT LOGGED IN")
+if requete["success"]:
+    if not requete["result"]["logged_in"]:
+        challenge = requete["result"]["challenge"].encode("utf-8")
+    else:
+        logging.debug("LOGIN : NOT LOGGED IN")
 
 # START SESSION
-h = hmac.new(appToken,challenge,sha1)
+h = hmac.new(appToken.encode("utf-8"), challenge, sha1)
 password = h.hexdigest()
-payload = {'app_id': appID, 'password': password}
-requete = post_freebox("/api/v1/login/session",json.dumps(payload))
-if requete['success']:
-	sessionToken = requete['result']['session_token']
-	headers['X-Fbx-App-Auth']=sessionToken
-	logging.debug("SESSION: SUCCESS")
-	logging.debug(requete['result'])
-	if 'settings' in requete['result']['permissions'] and requete['result']['permissions']['settings'] != True:
-		logging.debug(">>>> Permissions de l'application insuffisantes")
-		print("Permissions de l'application insuffisantes, accorder \"Modification des réglages\" sur le Freebox Server")
-		sys.exit(2)
+payload = {"app_id": appID, "password": password}
+requete = post_freebox("/api/v1/login/session", json.dumps(payload))
+if requete["success"]:
+    sessionToken = requete["result"]["session_token"]
+    headers["X-Fbx-App-Auth"] = sessionToken
+    logging.debug("SESSION: SUCCESS")
+    logging.debug(requete["result"])
+    if (
+        "settings" in requete["result"]["permissions"]
+        and requete["result"]["permissions"]["settings"] != True
+    ):
+        logging.debug(">>>> Permissions de l'application insuffisantes")
+        print(
+            'Permissions de l\'application insuffisantes, accorder "Modification des réglages" sur le Freebox Server'
+        )
+        sys.exit(2)
 else:
-	logging.debug("SESSION: FAILURE")
-	logging.debug(requete)
-	logging.debug(">>>> Application non autorisée ! Lancer manuellement avec l'option -a")
-	print "Application non autorisée, lancer manuellement avec l'option -a"
-	sys.exit(3)
+    logging.debug("SESSION: FAILURE")
+    logging.debug(requete)
+    logging.debug(
+        ">>>> Application non autorisée ! Lancer manuellement avec l'option -a"
+    )
+    print("Application non autorisée, lancer manuellement avec l'option -a")
+    sys.exit(3)
 
-print "<<<check_mk>>>"
-print "Version:%s v%s"%(progname,progversion)
-print "AgentOS: freebox"
+print("<<<check_mk>>>")
+print("Version: %s" % (progversion))
+print("AgentOS: freebox")
 
 # DISKS
 requete = get_freebox("/api/v1/storage/disk/")
-if requete['success'] and requete['result']:
-	for disk in requete['result']:
-		if disk['type'] == 'internal':
-			diskName=disk['type'] + '_' + str(disk['id'])
-			diskModel=disk['model']
-			diskTemp=disk['temp']
-			localChecks.append("0 fbx_temp_disk_%s temperature=%i;60;80; Disque %s temperature : %i C"%(diskName,diskTemp,diskName,diskTemp))
+if requete["success"] and "result" in requete:
+    for disk in requete["result"]:
+        if disk["type"] == "internal":
+            diskName = disk["type"] + "_" + str(disk["id"])
+            diskModel = disk["model"]
+            diskTemp = disk["temp"]
+            localChecks.append(
+                "0 fbx_temp_disk_%s temperature=%i;60;80; Disque %s temperature : %i C"
+                % (diskName, diskTemp, diskName, diskTemp)
+            )
 
 # PARTITIONS
 requete = get_freebox("/api/v1/storage/partition/")
-if requete['success'] and requete['result']:
-	result = requete['result']
-	print "<<<df>>>"
-	for partition in result:
-		label = partition['label'].replace(' ','_')
-		id = partition['disk_id']
-		fstype =  partition['fstype']
-		if partition['state'] == 'mounted':
-			path = base64.b64decode(partition['path']).replace(' ','_')
-		else:
-			path = "umounted"
-		blocks = partition['total_bytes']/1024
-		usedblocks = partition['used_bytes']/1024
-		freeblocks = partition['free_bytes']/1024
-		capacity = int(( float(usedblocks) / blocks ) * 100)
-		capacity = (usedblocks*100) / blocks
-		print 'Partition_%s %s %s %s %s %s %s'%(id,fstype,blocks,usedblocks,freeblocks,capacity,path)
+if requete["success"] and "result" in requete:
+    result = requete["result"]
+    print("<<<df>>>")
+    for partition in result:
+        label = partition["label"].replace(" ", "_")
+        id = partition["disk_id"]
+        fstype = partition["fstype"]
+        if partition["state"] == "mounted":
+            path = base64.b64decode(partition["path"]).decode("utf-8").replace(" ", "_")
+        else:
+            path = "umounted"
+        blocks = partition["total_bytes"] / 1024
+        usedblocks = partition["used_bytes"] / 1024
+        freeblocks = partition["free_bytes"] / 1024
+        capacity = int((float(usedblocks) / blocks) * 100)
+        capacity = (usedblocks * 100) / blocks
+        print(
+            "Partition_%s %s %s %s %s %s %s"
+            % (id, fstype, blocks, usedblocks, freeblocks, capacity, path)
+        )
 
 # CPL
 requete = get_freebox("/api/v1/freeplug/")
-if requete['success'] and 'result' in requete:
-        result = requete['result']
-	for network in result:
-		id = network['id']
-		for member in network['members']:
-			error = 0
-			rx_rate = member['rx_rate']
-                        tx_rate = member['tx_rate']
-			perfdata = "rx_rate=" + str(rx_rate) + "|tx_rate=" + str(tx_rate)
-			id = member['id']
-			message = "OK"
-			role = member['net_role']
-			if member['has_network'] == False:
-				error = 2
-				message = "Pas de reseau"
-			if member['eth_port_status'] != "up":
-				error = 2
-				message = "Port ethernet down"
-			localChecks.append("%i fbx_cpl_%s %s CPL id %s (role %s) %s RX:%i TX:%i"%(error,id,perfdata,id,role,message,rx_rate,tx_rate))
-		
+if requete["success"] and "result" in requete:
+    result = requete["result"]
+    for network in result:
+        if "members" in list(network.keys()):
+            id = network["id"]
+            for member in network["members"]:
+                error = 0
+                rx_rate = member["rx_rate"]
+                tx_rate = member["tx_rate"]
+                perfdata = "rx_rate=" + str(rx_rate) + "|tx_rate=" + str(tx_rate)
+                id = member["id"]
+                message = "OK"
+                role = member["net_role"]
+                if member["has_network"] == False:
+                    error = 2
+                    message = "Pas de reseau"
+                if member["eth_port_status"] == "down":
+                    error = 2
+                    message = "Port ethernet down"
+                localChecks.append(
+                    "%i fbx_cpl_%s %s CPL id %s (role %s) %s RX:%i TX:%i"
+                    % (error, id, perfdata, id, role, message, rx_rate, tx_rate)
+                )
+
 # SWITCH
 # La gestion des erreurs tx et rx est problablement (très) imprécise
-interfaces= [ ]
+interfaces = []
 requete = get_freebox("/api/v1/switch/status/")
-if requete['success'] and requete['result']:
-# Les interfaces ne sont pas renvoyees dans l'ordre, donc je trie:
-        result = sorted(requete['result'],key=lambda k: k['id'])
-	for port in result:
-		portId = str(port['id'])
-		requete = get_freebox("/api/v1/switch/port/"+portId+"/stats")
-		if requete['success'] and requete['result']:
-			portStats = requete['result']
-			interface = { \
-			'portId' : "LAN" + portId ,\
-			'rxBytes' : portStats['rx_good_bytes'] ,\
-			'rxPackets' : portStats['rx_good_packets'] ,\
-			'rxErrs' : portStats['rx_err_packets'] ,\
-			'rxDrops' : 0 ,\
-			'rxFifo' : 0 ,\
-			'rxFrame' : 0 ,\
-			'rxCompressed' : 0 ,\
-			'rxMulticast' : 0 ,\
-			'txBytes' : portStats['tx_bytes'] ,\
-			'txPackets' : portStats['tx_packets'] ,\
-			'txErrs' : 0 ,\
-			'txDrops' : 0 ,\
-			'txFifo' : 0 ,\
-			'txColls' : portStats['tx_collisions'] ,\
-			'txCarrier' : portStats['tx_fcs'] ,\
-			'txCompressed' : 0 ,\
-			'speed' : port['speed'] ,\
-			'duplex' : port['duplex'] ,\
-			}
-			if port['link'] == "up":
-				interface['link'] = "yes"
-			else:
-                                interface['link'] = "no"
-		requete = get_freebox("/api/v1/switch/port/"+portId)
-		if requete['success']:
-			if requete['result']['duplex'] == "auto":
-				interface['duplexConfig'] = "on"
-			else:
-                                interface['duplexConfig'] = "off"
-		interfaces.append(interface)
+if requete["success"] and "result" in requete:
+    # Les interfaces ne sont pas renvoyees dans l'ordre, donc je trie:
+    result = sorted(requete["result"], key=lambda k: k["id"])
+    for port in result:
+        portId = str(port["id"])
+        requete = get_freebox("/api/v1/switch/port/" + portId + "/stats")
+        if requete["success"] and requete["result"]:
+            portStats = requete["result"]
+            interface = {
+                "portId": "LAN" + portId,
+                "rxBytes": portStats["rx_good_bytes"],
+                "rxPackets": portStats["rx_good_packets"],
+                "rxErrs": portStats["rx_err_packets"],
+                "rxDrops": 0,
+                "rxFifo": 0,
+                "rxFrame": 0,
+                "rxCompressed": 0,
+                "rxMulticast": 0,
+                "txBytes": portStats["tx_bytes"],
+                "txPackets": portStats["tx_packets"],
+                "txErrs": 0,
+                "txDrops": 0,
+                "txFifo": 0,
+                "txColls": portStats["tx_collisions"],
+                "txCarrier": portStats["tx_fcs"],
+                "txCompressed": 0,
+                "speed": port["speed"],
+                "duplex": port["duplex"],
+            }
+            if port["link"] == "up":
+                interface["link"] = "yes"
+            else:
+                interface["link"] = "no"
+        requete = get_freebox("/api/v1/switch/port/" + portId)
+        if requete["success"]:
+            if requete["result"]["duplex"] == "auto":
+                interface["duplexConfig"] = "on"
+            else:
+                interface["duplexConfig"] = "off"
+        interfaces.append(interface)
 
-# WAN 
-interface = [ ]
+# WAN
+interface = []
 requete = get_freebox("/api/v1/connection")
-if requete['success'] and requete['result']:
-	result=requete['result']
-	if result['media'] == 'xdsl':
-		requete = get_freebox("/api/v1/connection/xdsl")
-		if requete['success']:
-			xdsl = requete['result']
-	                interface = { \
-        	        'portId' : result['media'].upper() ,\
-                	'rxBytes' : result['bytes_down'] ,\
-	                'rxPackets' : 0 ,\
-        	        'rxErrs' : xdsl['down']['rxmt_corr'] ,\
-                	'rxDrops' : xdsl['down']['rxmt_uncorr'] ,\
-	                'rxFifo' : 0 ,\
-        	        'rxFrame' : 0 ,\
-                	'rxCompressed' : 0 ,\
-	                'rxMulticast' : 0 ,\
-                        'txBytes' : result['bytes_up'] ,\
-                        'txPackets' : 0 ,\
-                        'txErrs' : 0 ,\
-                        'txDrops' : 0 ,\
-                        'txFifo' : 0 ,\
-                        'txColls' : 0 ,\
-                        'txCarrier' : 0 ,\
-                        'txCompressed' : 0 ,\
-                        'duplex' : "off" ,\
-			'duplexConfig' : "off" ,\
-                        }
-		if xdsl['status']['status'] == "showtime":
-			interface['link'] = "yes"
-			xdsl_status = 0 
-			xdsl_comment =  "Connexion xDSL OK"
-                        xdsl_uptime = "xdsl_uptime=" + str(xdsl['status']['uptime']) + "s"
-			rate_down = "rate_down=" + str(xdsl['down']['rate'])
-			rate_up = "rate_up=" + str(xdsl['up']['rate']) 
-                        snr_down = "snr_down=" + str(xdsl['down']['snr'])
-                        snr_up = "snr_up=" + str(xdsl['up']['snr'])
-			attn_down = "attn_down=" +  str(xdsl['down']['attn'])
-			attn_up = "attn_up=" + str(xdsl['up']['attn'])
-			fec_down = "fec_down=" + str(xdsl['down']['fec']) + "c"
-                        fec_up = "fec_up=" + str(xdsl['up']['fec']) + "c"
-                        hec_down = "hec_down=" + str(xdsl['down']['hec']) + "c"
-                        hec_up = "hec_up=" + str(xdsl['up']['hec']) + "c"
-                        crc_down = "crc_down=" + str(xdsl['down']['crc']) + "c"
-                        crc_up = "crc_up=" + str(xdsl['up']['crc']) + "c"
-			es_down = "es_down=" + str(xdsl['down']['es'])
-                        es_up = "es_up=" + str(xdsl['up']['es'])
-                        ses_down = "ses_down=" + str(xdsl['down']['ses'])
-                        ses_up = "ses_up=" + str(xdsl['up']['ses'])
-			perfdata = xdsl_uptime + "|" + rate_down + "|" + rate_up + "|" + snr_down + "|" + snr_up + "|" + attn_down + "|" + attn_up + "|" + fec_down + "|" + fec_up + "|" + es_down + "|" + es_up + "|" + ses_down + "|" + ses_up + "|" + hec_down + "|" + hec_up + "|" + fec_down + "|" + fec_up + "|" + crc_down + "|" + crc_up
-		else:
-			interface['link'] = "no"
-			xdsl_status = 1
-			xdsl_comment = "Pas de connexion xDSL"
-			perfdata = "-"
-			rate_down = 0
-			rate_up = 0
-		interface['speed'] = result['bandwidth_down']/1048576
-                interfaces.append(interface)
-		localChecks.append("%i fbx_xdsl_state %s %s (type %s, etat %s, %s, %s) "%(xdsl_status,perfdata,xdsl_comment,xdsl['status']['modulation'],xdsl['status']['status'],rate_down,rate_up))
+if requete["success"] and "result" in requete:
+    result = requete["result"]
+    if result["media"] == "xdsl":
+        requete = get_freebox("/api/v1/connection/xdsl")
+        if requete["success"]:
+            xdsl = requete["result"]
+            interface = {
+                "portId": result["media"].upper(),
+                "rxBytes": result["bytes_down"],
+                "rxPackets": 0,
+                "rxErrs": xdsl["down"]["rxmt_corr"],
+                "rxDrops": xdsl["down"]["rxmt_uncorr"],
+                "rxFifo": 0,
+                "rxFrame": 0,
+                "rxCompressed": 0,
+                "rxMulticast": 0,
+                "txBytes": result["bytes_up"],
+                "txPackets": 0,
+                "txErrs": 0,
+                "txDrops": 0,
+                "txFifo": 0,
+                "txColls": 0,
+                "txCarrier": 0,
+                "txCompressed": 0,
+                "duplex": "off",
+                "duplexConfig": "off",
+            }
+        if xdsl["status"]["status"] == "showtime":
+            interface["link"] = "yes"
+            xdsl_status = 0
+            xdsl_comment = "Connexion xDSL OK"
+            xdsl_uptime = "xdsl_uptime=" + str(xdsl["status"]["uptime"]) + "s"
+            rate_down = "rate_down=" + str(xdsl["down"]["rate"])
+            rate_up = "rate_up=" + str(xdsl["up"]["rate"])
+            snr_down = "snr_down=" + str(xdsl["down"]["snr"])
+            snr_up = "snr_up=" + str(xdsl["up"]["snr"])
+            attn_down = "attn_down=" + str(xdsl["down"]["attn"])
+            attn_up = "attn_up=" + str(xdsl["up"]["attn"])
+            fec_down = "fec_down=" + str(xdsl["down"]["fec"]) + "c"
+            fec_up = "fec_up=" + str(xdsl["up"]["fec"]) + "c"
+            hec_down = "hec_down=" + str(xdsl["down"]["hec"]) + "c"
+            hec_up = "hec_up=" + str(xdsl["up"]["hec"]) + "c"
+            crc_down = "crc_down=" + str(xdsl["down"]["crc"]) + "c"
+            crc_up = "crc_up=" + str(xdsl["up"]["crc"]) + "c"
+            es_down = "es_down=" + str(xdsl["down"]["es"])
+            es_up = "es_up=" + str(xdsl["up"]["es"])
+            ses_down = "ses_down=" + str(xdsl["down"]["ses"])
+            ses_up = "ses_up=" + str(xdsl["up"]["ses"])
+            perfdata = (
+                xdsl_uptime
+                + "|"
+                + rate_down
+                + "|"
+                + rate_up
+                + "|"
+                + snr_down
+                + "|"
+                + snr_up
+                + "|"
+                + attn_down
+                + "|"
+                + attn_up
+                + "|"
+                + fec_down
+                + "|"
+                + fec_up
+                + "|"
+                + es_down
+                + "|"
+                + es_up
+                + "|"
+                + ses_down
+                + "|"
+                + ses_up
+                + "|"
+                + hec_down
+                + "|"
+                + hec_up
+                + "|"
+                + crc_down
+                + "|"
+                + crc_up
+            )
+        else:
+            interface["link"] = "no"
+            xdsl_status = 1
+            xdsl_comment = "Pas de connexion xDSL"
+            perfdata = "-"
+            rate_down = 0
+            rate_up = 0
+        interface["speed"] = result["bandwidth_down"] / 1048576
+        interfaces.append(interface)
+        localChecks.append(
+            "%i fbx_xdsl_state %s %s (type %s, etat %s, %s, %s) "
+            % (
+                xdsl_status,
+                perfdata,
+                xdsl_comment,
+                xdsl["status"]["modulation"],
+                xdsl["status"]["status"],
+                rate_down,
+                rate_up,
+            )
+        )
 
-	print "<<<lnx_if:sep(58)>>>"
-	for interface in interfaces:
-		print "  %(portId)s:%(rxBytes)i %(rxPackets)i %(rxErrs)i %(rxDrops)i %(rxFifo)i %(rxFrame)i %(rxCompressed)i %(rxMulticast)i \
-%(txBytes)i %(txPackets)i %(txErrs)i %(txDrops)i %(txFifo)i %(txColls)i %(txCarrier)i %(txCompressed)i"%interface
-        for interface in interfaces:
-                print "[%(portId)s]"%interface
-		print "         Speed: %(speed)sMb/s"%interface
-		print "         Duplex: %(duplex)s"%interface
-		print "         Auto-negotiation: %(duplexConfig)s"%interface
-		print "         Link detected: %(link)s"%interface
+    elif result["media"] == "ftth":
+        requete = get_freebox("/api/v1/connection/ftth")
+        if requete["success"]:
+            ftth = requete["result"]
+            interface = {
+                "portId": result["media"].upper(),
+                "rxBytes": result["bytes_down"],
+                "rxPackets": 0,
+                "rxErrs": 0,
+                "rxDrops": 0,
+                "rxFifo": 0,
+                "rxFrame": 0,
+                "rxCompressed": 0,
+                "rxMulticast": 0,
+                "txBytes": result["bytes_up"],
+                "txPackets": 0,
+                "txErrs": 0,
+                "txDrops": 0,
+                "txFifo": 0,
+                "txColls": 0,
+                "txCarrier": 0,
+                "txCompressed": 0,
+                "duplex": "off",
+                "duplexConfig": "off",
+            }
+        if result["state"] == "up":
+            interface["link"] = "yes"
+            ftth_status = 0
+            ftth_comment = "Connexion FTTH OK"
+            rate_down = "rate_down=" + str(result["rate_down"])
+            rate_up = "rate_up=" + str(result["rate_up"])
+            bandwidth_down = "bandwidth_down=" + str(result["bandwidth_down"] / 1000000)
+            bandwidth_up = "bandwidth_up=" + str(result["bandwidth_up"] / 1000000)
+            perfdata = rate_down + "|" + rate_up
+        else:
+            interface["link"] = "no"
+            ftth_status = 1
+            ftth_comment = "Pas de connexion FTTH"
+            perfdata = "-"
+            rate_down = 0
+            rate_up = 0
+        sfp_has_signal = "sfp_has_signal=" + str(ftth["sfp_has_signal"])
+        sfp_present = "sfp_present=" + str(ftth["sfp_present"])
+        sfp_alim_ok = "sfp_alim_ok=" + str(ftth["sfp_alim_ok"])
+        interface["speed"] = result["bandwidth_down"] / 1048576
+        interfaces.append(interface)
+        localChecks.append(
+            "%i fbx_ffth_state %s %s (type %s, etat %s, %s, %s, %s, %s, %s) "
+            % (
+                ftth_status,
+                perfdata,
+                ftth_comment,
+                result["type"],
+                result["state"],
+                bandwidth_down,
+                bandwidth_up,
+                sfp_present,
+                sfp_alim_ok,
+                sfp_has_signal,
+            )
+        )
+
+    print("<<<lnx_if:sep(58)>>>")
+    for interface in interfaces:
+        print(
+            "  %(portId)s:%(rxBytes)i %(rxPackets)i %(rxErrs)i %(rxDrops)i %(rxFifo)i %(rxFrame)i %(rxCompressed)i %(rxMulticast)i \
+%(txBytes)i %(txPackets)i %(txErrs)i %(txDrops)i %(txFifo)i %(txColls)i %(txCarrier)i %(txCompressed)i"
+            % interface
+        )
+    for interface in interfaces:
+        print("[%(portId)s]" % interface)
+        print("         Speed: %(speed)sMb/s" % interface)
+        print("         Duplex: %(duplex)s" % interface)
+        print("         Auto-negotiation: %(duplexConfig)s" % interface)
+        print("         Link detected: %(link)s" % interface)
 
 # SYSTEME
 requete = get_freebox("/api/v1/system/")
-if requete['success'] and requete['result']:
-        result=requete['result']
+if requete["success"] and "result" in requete:
+    result = requete["result"]
 
-	if ( result['fan_rpm'] < 500 ):
-		status = 1
-		comment = "Vitesse ventilo trop basse: " + str(result['fan_rpm']) + " RPM"
-	else:
-		status = 0
-		comment = "Vitesse ventilo: " + str(result['fan_rpm']) + " RPM"
-	localChecks.append("%i fbx_fan_rpm fan_rpm=%i %s"%(status,result['fan_rpm'],comment))
+    if result["fan_rpm"] < 500:
+        status = 1
+        comment = "Vitesse ventilo trop basse: " + str(result["fan_rpm"]) + " RPM"
+    else:
+        status = 0
+        comment = "Vitesse ventilo: " + str(result["fan_rpm"]) + " RPM"
+    localChecks.append(
+        "%i fbx_fan_rpm fan_rpm=%i %s" % (status, result["fan_rpm"], comment)
+    )
 
-        if ( result['temp_sw'] > 70 ):
-                status = 1
-                comment = "Temperature switch trop élevée: " + str(result['temp_sw']) + "°C"
-        else:
-                status = 0
-                comment = "Temperature switch : " + str(result['temp_sw']) + "°C"
-        localChecks.append("%i fbx_temp_sw temp_sw=%i %s"%(status,result['temp_sw'],comment))
+    if result["temp_sw"] > 70:
+        status = 1
+        comment = "Temperature switch trop élevée: " + str(result["temp_sw"]) + "°C"
+    else:
+        status = 0
+        comment = "Temperature switch : " + str(result["temp_sw"]) + "°C"
+    localChecks.append(
+        "%i fbx_temp_sw temp_sw=%i %s" % (status, result["temp_sw"], comment)
+    )
 
-        if ( result['temp_cpub'] > 85 ):
-                status = 1
-                comment = "Temperature CPU Broadcom trop élevée: " + str(result['temp_cpub']) + "°C"
-        else:
-                status = 0
-                comment = "Temperature CPU Broadcom: " + str(result['temp_cpub']) + "°C"
-        localChecks.append("%i fbx_temp_cpub temp_cpub=%i %s"%(status,result['temp_cpub'],comment))
+    if result["temp_cpub"] > 85:
+        status = 1
+        comment = (
+            "Temperature CPU Broadcom trop élevée: " + str(result["temp_cpub"]) + "°C"
+        )
+    else:
+        status = 0
+        comment = "Temperature CPU Broadcom: " + str(result["temp_cpub"]) + "°C"
+    localChecks.append(
+        "%i fbx_temp_cpub temp_cpub=%i %s" % (status, result["temp_cpub"], comment)
+    )
 
-        if ( result['temp_cpum'] > 70 ):
-                status = 1
-                comment = "Temperature CPU Marvell trop élevée: " + str(result['temp_cpum']) + "°C"
-        else:
-                status = 0
-                comment = "Temperature CPU Marvell: " + str(result['temp_cpum']) + "°C"
-        localChecks.append("%i fbx_temp_cpum temp_cpum=%i %s"%(status,result['temp_cpum'],comment))
+    if result["temp_cpum"] > 80:
+        status = 1
+        comment = (
+            "Temperature CPU Marvell trop élevée: " + str(result["temp_cpum"]) + "°C"
+        )
+    else:
+        status = 0
+        comment = "Temperature CPU Marvell: " + str(result["temp_cpum"]) + "°C"
+    localChecks.append(
+        "%i fbx_temp_cpum temp_cpum=%i %s" % (status, result["temp_cpum"], comment)
+    )
 
-# UPTIME
-# Attention : si une valeur est nulle, elle n'est pas renvoyée
-# de plus, les unités sont bien accordées. par exemple:
-# ex: "1 jour 49 minutes 42 secondes", "3 jours 17 heures 1 minute 16 secondes"
-
-	print "<<<uptime>>>"
-	logging.debug("uptime=" + result['uptime'])
-	suptime = result['uptime'].split(" ")
-	duptime = { 'jour' : 0, 'heure' : 0, 'minute' : 0, 'seconde' : 0 }
-	for i in range (0, len(suptime),2):
-		duptime[suptime[i+1].rstrip("s")] = int(suptime[i])
-	logging.debug("duptime=" + str(duptime))
-	uptime = (((duptime['jour'] * 24 + duptime['heure']) * 60 + duptime['minute']) * 60 + duptime['seconde'])
-	print "%i 0"%uptime 
+    # UPTIME
+    # NEW v1.8: basé sur uptime_val https://dev.freebox.fr/bugs/task/13929 , cree a ma demande :-)
+    print("<<<uptime>>>")
+    logging.debug(
+        "uptime=" + result["uptime"] + " uptime_val=" + str(result["uptime_val"])
+    )
+    uptime = result["uptime_val"]
+    print("%i 0" % uptime)
 
 # WIFI
-requete = get_freebox("/api/v1/wifi/")
-if requete['success'] and requete['result']:
-        result=requete['result']
-	if result['bss']['perso']['active'] == True:
-		ssid = get_freebox("/api/v1/wifi/config")['result']['bss']['perso']['ssid']
-		localChecks.append("0 fbx_wifi_perso - Wifi perso actif (SSID:"+ssid+")")
-		requete = get_freebox("/api/v1/wifi/stations/perso")
-		if requete['success'] and requete['result']:
-			result=requete['result']
-			for station in result:
-				stationName = station['hostname'].replace(' ','_').encode('utf8')
-				stationSignal = station['signal']
-				if station['state'] == "authenticated":
-					localChecks.append("0 fbx_wifi_station_%s signal=%i Station %s authentifiee, signal:%idB"%(stationName,stationSignal,stationName,stationSignal))
-				else:
-					localChecks.append("2 fbx_wifi_station_%s signal=0 Station %s non authentifiee"%(stationName,stationName))
-	else:
-		localChecks.append("2 fbx_wifi_perso - Wifi perso inactif")
+# NEW v2.0 : basésur l'API v2 du wifi.On suppose un seul AP et un seul BSS, ca fonctionne avec une Freebox revolution en 3.5
+requete = get_freebox("/api/v2/wifi/config")
+if requete["success"] and requete["result"]["enabled"]:
+    requete = get_freebox("/api/v2/wifi/bss")
+    if requete["success"]:
+        result = requete["result"]
+        if (
+            result[0]["config"]["enabled"] == True
+            and result[0]["status"]["state"] == "active"
+        ):
+            ssid = result[0]["config"]["ssid"]
+            localChecks.append(
+                "0 fbx_wifi_perso - Wifi perso actif (SSID:" + ssid + ")"
+            )
+            requete = get_freebox("/api/v2/wifi/ap/0/stations")
+            if requete["success"] and requete.get(
+                "result"
+            ):  # "'result' n'existe pas sur une freebox neuve"
+                result = requete["result"]
+                for station in result:
+                    stationName = station["hostname"].replace(" ", "_").encode("utf8")
+                    stationSignal = station["signal"]
+                    if station["state"] == "authenticated":
+                        localChecks.append(
+                            "0 fbx_wifi_station_%s signal=%i Station %s authentifiee, signal:%idB"
+                            % (stationName, stationSignal, stationName, stationSignal)
+                        )
+                    else:
+                        localChecks.append(
+                            "2 fbx_wifi_station_%s signal=0 Station %s non authentifiee"
+                            % (stationName, stationName)
+                        )
+        else:
+            localChecks.append("2 fbx_wifi_perso - Wifi perso inactif")
 
 # LOGOUT
-requete = post_freebox("/api/v1/login/logout/" , None )
+requete = post_freebox("/api/v1/login/logout/", None)
 
 # LOCAL CHECKS
-print '<<<local>>>'
+print("<<<local>>>")
 for check in localChecks:
-        print check
+    print(check)
